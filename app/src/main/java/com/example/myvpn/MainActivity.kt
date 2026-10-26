@@ -8,11 +8,14 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +26,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wireguard.android.backend.GoBackend
+
+const val WS_TEMPLATE =
+    "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
 
 class MainActivity : ComponentActivity() {
 
@@ -49,7 +55,7 @@ class MainActivity : ComponentActivity() {
             val intent = GoBackend.VpnService.prepare(this)
             if (intent != null) permissionLauncher.launch(intent) else vm.connect()
         } else {
-            vm.connect() // SSH لا يحتاج إذن VPN
+            vm.connect()
         }
     }
 }
@@ -57,6 +63,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var showAdd by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     val color = when (vm.status) {
         VpnStatus.CONNECTED -> Color(0xFF2ECC71)
@@ -73,8 +80,11 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
         Modifier.fillMaxSize().padding(24.dp).statusBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Redo VPN", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(32.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Redo VPN", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = { showSettings = true }) { Icon(Icons.Default.Settings, "الإعدادات") }
+        }
+        Spacer(Modifier.height(24.dp))
 
         Button(
             onClick = onToggle,
@@ -90,7 +100,7 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
         if (vm.activeSsh) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "SOCKS5 على 127.0.0.1:1080\nاضبط هذا البروكسي في التطبيق الذي تريد تمريره عبر SSH",
+                "SOCKS5 على 127.0.0.1:${vm.socksPort}\nاضبط هذا البروكسي في التطبيق الذي تريد تمريره عبر SSH",
                 fontSize = 13.sp
             )
         }
@@ -115,10 +125,11 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
                         )
                         Column(Modifier.weight(1f)) {
                             Text(server.name)
-                            Text(
-                                if (server.type == "WG") "WireGuard" else "SSH • ${server.host}",
-                                fontSize = 12.sp
-                            )
+                            val sub = if (server.type == "WG") "WireGuard" else
+                                "SSH • ${server.host}" +
+                                    (if (server.payload.isNotBlank()) " • Payload" else "") +
+                                    (if (server.tls) " • TLS" else "")
+                            Text(sub, fontSize = 12.sp)
                         }
                         IconButton(onClick = { vm.removeServer(i) }) {
                             Icon(Icons.Default.Delete, "حذف")
@@ -129,9 +140,37 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
         }
     }
 
-    if (showAdd) AddServerDialog(
-        onDismiss = { showAdd = false },
-        onSave = { vm.addServer(it); showAdd = false }
+    if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
+    if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
+}
+
+@Composable
+fun SettingsDialog(vm: VpnViewModel, onDismiss: () -> Unit) {
+    var port by remember { mutableStateOf(vm.socksPort.toString()) }
+    var ka by remember { mutableStateOf(vm.keepAlive.toString()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("الإعدادات") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    port, { port = it.filter(Char::isDigit) },
+                    label = { Text("منفذ SOCKS5 المحلي (1024-65535)") }, singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    ka, { ka = it.filter(Char::isDigit) },
+                    label = { Text("فاصل Keep-Alive بالثواني (5-120)") }, singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.saveSettings(port.toIntOrNull() ?: 1080, ka.toIntOrNull() ?: 15)
+                onDismiss()
+            }) { Text("حفظ") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
     )
 }
 
@@ -144,12 +183,18 @@ fun AddServerDialog(onDismiss: () -> Unit, onSave: (Server) -> Unit) {
     var port by remember { mutableStateOf("22") }
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
+    var advanced by remember { mutableStateOf(false) }
+    var cHost by remember { mutableStateOf("") }
+    var cPort by remember { mutableStateOf("") }
+    var tls by remember { mutableStateOf(false) }
+    var sni by remember { mutableStateOf("") }
+    var payload by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("إضافة سيرفر") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(type == "WG", { type = "WG" }, label = { Text("WireGuard") })
                     FilterChip(type == "SSH", { type = "SSH" }, label = { Text("SSH") })
@@ -164,19 +209,50 @@ fun AddServerDialog(onDismiss: () -> Unit, onSave: (Server) -> Unit) {
                         modifier = Modifier.height(200.dp)
                     )
                 } else {
-                    OutlinedTextField(host, { host = it }, label = { Text("عنوان السيرفر") }, singleLine = true)
-                    OutlinedTextField(port, { port = it.filter(Char::isDigit) }, label = { Text("المنفذ") }, singleLine = true)
+                    OutlinedTextField(host, { host = it }, label = { Text("عنوان سيرفر SSH") }, singleLine = true)
+                    OutlinedTextField(port, { port = it.filter(Char::isDigit) }, label = { Text("منفذ SSH") }, singleLine = true)
                     OutlinedTextField(user, { user = it }, label = { Text("اسم المستخدم") }, singleLine = true)
                     OutlinedTextField(
                         pass, { pass = it }, label = { Text("كلمة المرور") }, singleLine = true,
                         visualTransformation = PasswordVisualTransformation()
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(advanced, { advanced = it })
+                        Spacer(Modifier.width(8.dp))
+                        Text("WebSocket / Payload")
+                    }
+                    if (advanced) {
+                        OutlinedTextField(cHost, { cHost = it }, label = { Text("عنوان الوسيط/CDN (اختياري)") }, singleLine = true)
+                        OutlinedTextField(cPort, { cPort = it.filter(Char::isDigit) }, label = { Text("منفذ الوسيط (80 أو 443)") }, singleLine = true)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(tls, { tls = it })
+                            Spacer(Modifier.width(8.dp))
+                            Text("TLS")
+                        }
+                        if (tls) OutlinedTextField(sni, { sni = it }, label = { Text("SNI") }, singleLine = true)
+                        OutlinedTextField(
+                            payload, { payload = it },
+                            label = { Text("Payload") },
+                            modifier = Modifier.height(130.dp)
+                        )
+                        TextButton(onClick = { payload = WS_TEMPLATE }) { Text("قالب WebSocket") }
+                        Text("المتغيرات: [host] [port] [crlf] [cr] [lf]", fontSize = 11.sp)
+                    }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                onSave(Server(name, type, cfg, host.trim(), port.toIntOrNull() ?: 22, user.trim(), pass))
+                onSave(Server(
+                    name = name, type = type, config = cfg,
+                    host = host.trim(), port = port.toIntOrNull() ?: 22,
+                    user = user.trim(), password = pass,
+                    connectHost = if (advanced) cHost.trim() else "",
+                    connectPort = if (advanced) cPort.toIntOrNull() ?: 0 else 0,
+                    tls = advanced && tls,
+                    sni = if (advanced) sni.trim() else "",
+                    payload = if (advanced) payload else ""
+                ))
             }) { Text("حفظ") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
