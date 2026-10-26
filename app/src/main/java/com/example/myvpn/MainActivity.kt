@@ -1,5 +1,7 @@
 package com.example.myvpn
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,7 +9,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -21,6 +25,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -39,8 +46,12 @@ class MainActivity : ComponentActivity() {
             if (result.resultCode == RESULT_OK) vm.connect() else vm.onPermissionDenied()
         }
 
+    private val notifLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(Modifier.fillMaxSize()) { VpnScreen(vm, onToggle = ::toggle) }
@@ -62,6 +73,43 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
+    var tab by remember { mutableStateOf(0) }
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        TabRow(selectedTabIndex = tab) {
+            Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
+            Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
+        }
+        if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
+    }
+}
+
+@Composable
+fun LogScreen() {
+    val clipboard = LocalClipboardManager.current
+    val state = rememberLazyListState()
+    LaunchedEffect(AppLog.lines.size) {
+        if (AppLog.lines.isNotEmpty()) state.scrollToItem(AppLog.lines.size - 1)
+    }
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                clipboard.setText(AnnotatedString(AppLog.lines.joinToString("\n")))
+            }) { Text("نسخ") }
+            OutlinedButton(onClick = { AppLog.clear() }) { Text("مسح") }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (AppLog.lines.isEmpty()) Text("لا توجد سجلات بعد", fontSize = 13.sp)
+        LazyColumn(state = state, modifier = Modifier.fillMaxSize()) {
+            items(AppLog.lines) {
+                Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
+                    modifier = Modifier.padding(vertical = 2.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     var showAdd by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
@@ -77,7 +125,7 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     }
 
     Column(
-        Modifier.fillMaxSize().padding(24.dp).statusBarsPadding(),
+        Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
