@@ -17,7 +17,7 @@ import org.json.JSONObject
 
 data class Server(
     val name: String,
-    val type: String,               // "WG" أو "SSH"
+    val type: String,               // "WG" أو "SSH" أو "V2RAY"
     val config: String = "",        // إعداد WireGuard
     val host: String = "",
     val port: Int = 22,
@@ -50,16 +50,21 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
     private var localError by mutableStateOf<String?>(null)
 
     val status: VpnStatus
-        get() = if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.status else wgStatus
+        get() = when {
+            V2rayManager.status != VpnStatus.DISCONNECTED -> V2rayManager.status
+            SshManager.status != VpnStatus.DISCONNECTED -> SshManager.status
+            else -> wgStatus
+        }
     val error: String?
-        get() = localError ?: SshManager.error
+        get() = localError ?: SshManager.error ?: V2rayManager.error
 
     // الإعدادات
     var socksPort by mutableStateOf(prefs.getInt("socksPort", 1080))
     var keepAlive by mutableStateOf(prefs.getInt("keepAlive", 15))
 
-    val selectedIsWireGuard get() = servers.getOrNull(selected)?.type != "SSH"
+    val selectedIsWireGuard get() = servers.getOrNull(selected)?.type == "WG"
     val activeSsh get() = servers.getOrNull(selected)?.type == "SSH" && status == VpnStatus.CONNECTED
+    val activeV2ray get() = servers.getOrNull(selected)?.type == "V2RAY" && status == VpnStatus.CONNECTED
 
     init { loadServers() }
 
@@ -75,6 +80,10 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
         localError = null
         if (server.type == "SSH") {
             SshManager.connect(getApplication<Application>(), server, socksPort, keepAlive)
+            return
+        }
+        if (server.type == "V2RAY") {
+            V2rayManager.connect(getApplication<Application>(), server.config)
             return
         }
         wgStatus = VpnStatus.CONNECTING
@@ -95,6 +104,7 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnect() {
         if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.disconnect(getApplication<Application>())
+        if (V2rayManager.status != VpnStatus.DISCONNECTED) V2rayManager.disconnect()
         if (wgStatus != VpnStatus.DISCONNECTED) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
@@ -121,8 +131,11 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
                 localError = "إعداد WireGuard غير صالح: ${e.message}"
                 return
             }
-        } else if (s.host.isBlank() || s.user.isBlank()) {
+        } else if (s.type == "SSH" && (s.host.isBlank() || s.user.isBlank())) {
             localError = "أدخل عنوان السيرفر واسم المستخدم"
+            return
+        } else if (s.type == "V2RAY" && !V2rayManager.isSupportedLink(s.config)) {
+            localError = "رابط V2Ray غير صالح. استعمل vless:// أو vmess:// أو trojan://"
             return
         }
         localError = null
