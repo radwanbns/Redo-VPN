@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK with V2Ray
 on:
   workflow_dispatch:
   push:
@@ -12,6 +12,27 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.2.12479018"
+      - name: Build Xray core Android library
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/2dust/AndroidLibXrayLite.git /tmp/AndroidLibXrayLite
+          cd /tmp/AndroidLibXrayLite
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+          gomobile init
+          go mod tidy
+          mkdir -p "$GITHUB_WORKSPACE/app/libs"
+          gomobile bind -v -androidapi 24 -target=android -o "$GITHUB_WORKSPACE/app/libs/libv2ray.aar" .
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
