@@ -17,13 +17,17 @@ class SshSocksTunnel {
 
     val isRunning get() = running && session?.isConnected == true
 
-    fun start(host: String, port: Int, user: String, password: String, localPort: Int = 1080) {
+    fun start(sv: Server, localPort: Int, keepAliveSec: Int) {
         stop()
-        val s = JSch().getSession(user, host, port)
-        s.setPassword(password)
+        val s = JSch().getSession(sv.user, sv.host, sv.port)
+        s.setPassword(sv.password)
         s.setConfig("StrictHostKeyChecking", "no")
-        s.setServerAliveInterval(15000)
-        s.connect(15000)
+        s.setServerAliveInterval(keepAliveSec * 1000)
+        if (sv.payload.isNotBlank() || sv.tls || sv.connectHost.isNotBlank()) {
+            val cPort = if (sv.connectPort > 0) sv.connectPort else if (sv.tls) 443 else 80
+            s.setProxy(PayloadProxy(sv.connectHost.ifBlank { sv.host }, cPort, sv.tls, sv.sni, sv.payload))
+        }
+        s.connect(20000)
         session = s
 
         val ss = ServerSocket(localPort, 50, InetAddress.getByName("127.0.0.1"))
