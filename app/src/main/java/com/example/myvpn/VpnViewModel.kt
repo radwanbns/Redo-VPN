@@ -36,19 +36,23 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("servers", 0)
     private val backend = GoBackend(app)
-    private val ssh = SshSocksTunnel()
 
     private val wgTunnel = object : Tunnel {
         override fun getName() = "redovpn"
         override fun onStateChange(newState: Tunnel.State) {
-            status = if (newState == Tunnel.State.UP) VpnStatus.CONNECTED else VpnStatus.DISCONNECTED
+            wgStatus = if (newState == Tunnel.State.UP) VpnStatus.CONNECTED else VpnStatus.DISCONNECTED
         }
     }
 
     val servers = mutableStateListOf<Server>()
     var selected by mutableStateOf(0)
-    var status by mutableStateOf(VpnStatus.DISCONNECTED)
-    var error by mutableStateOf<String?>(null)
+    private var wgStatus by mutableStateOf(VpnStatus.DISCONNECTED)
+    private var localError by mutableStateOf<String?>(null)
+
+    val status: VpnStatus
+        get() = if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.status else wgStatus
+    val error: String?
+        get() = localError ?: SshManager.error
 
     // الإعدادات
     var socksPort by mutableStateOf(prefs.getInt("socksPort", 1080))
@@ -67,40 +71,46 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
 
     fun connect() {
         val server = servers.getOrNull(selected)
-        if (server == null) { error = "أضف سيرفراً أولاً"; return }
-        error = null
-        status = VpnStatus.CONNECTING
+        if (server == null) { localError = "أضف سيرفراً أولاً"; return }
+        localError = null
+        if (server.type == "SSH") {
+            SshManager.connect(getApplication<Application>(), server, socksPort, keepAlive)
+            return
+        }
+        wgStatus = VpnStatus.CONNECTING
+        AppLog.add("WireGuard: جارٍ الاتصال (${server.name})")
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                if (server.type == "WG") {
-                    val cfg = Config.parse(server.config.byteInputStream())
-                    backend.setState(wgTunnel, Tunnel.State.UP, cfg)
-                } else {
-                    ssh.start(server, socksPort, keepAlive)
-                }
-                status = VpnStatus.CONNECTED
+                val cfg = Config.parse(server.config.byteInputStream())
+                backend.setState(wgTunnel, Tunnel.State.UP, cfg)
+                wgStatus = VpnStatus.CONNECTED
+                AppLog.add("WireGuard: تم الاتصال ✔")
             } catch (e: Exception) {
-                status = VpnStatus.DISCONNECTED
-                error = "فشل الاتصال: ${e.message}"
+                wgStatus = VpnStatus.DISCONNECTED
+                localError = "فشل الاتصال: ${e.message}"
+                AppLog.add("WireGuard: فشل — ${e.message}")
             }
         }
     }
 
     fun disconnect() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                ssh.stop()
-                backend.setState(wgTunnel, Tunnel.State.DOWN, null)
-            } catch (e: Exception) {
-                error = e.message
+        if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.disconnect(getApplication<Application>())
+        if (wgStatus != VpnStatus.DISCONNECTED) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    backend.setState(wgTunnel, Tunnel.State.DOWN, null)
+                } catch (e: Exception) {
+                    localError = e.message
+                }
+                wgStatus = VpnStatus.DISCONNECTED
+                AppLog.add("WireGuard: تم قطع الاتصال")
             }
-            status = VpnStatus.DISCONNECTED
         }
     }
 
     fun onPermissionDenied() {
-        status = VpnStatus.DISCONNECTED
-        error = "لم تتم الموافقة على إذن VPN"
+        wgStatus = VpnStatus.DISCONNECTED
+        localError = "لم تتم الموافقة على إذن VPN"
     }
 
     fun addServer(s: Server) {
@@ -108,14 +118,14 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 Config.parse(s.config.byteInputStream())
             } catch (e: Exception) {
-                error = "إعداد WireGuard غير صالح: ${e.message}"
+                localError = "إعداد WireGuard غير صالح: ${e.message}"
                 return
             }
         } else if (s.host.isBlank() || s.user.isBlank()) {
-            error = "أدخل عنوان السيرفر واسم المستخدم"
+            localError = "أدخل عنوان السيرفر واسم المستخدم"
             return
         }
-        error = null
+        localError = null
         servers.add(s.copy(name = s.name.ifBlank { "سيرفر ${servers.size + 1}" }))
         saveServers()
     }
@@ -154,6 +164,4 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
             ))
         }
     }
-
-    override fun onCleared() { ssh.stop() }
 }
