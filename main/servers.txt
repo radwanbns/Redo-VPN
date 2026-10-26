@@ -1,0 +1,1 @@
+vless://083d1468-d0d9-11f1-ac57-2bda140d2987@se2.vpnjantit.com:443?encryption=none&security=tls&type=ws&path=%2fvpnjantit#Hjbbh88-vpnjantit.com
