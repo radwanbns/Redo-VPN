@@ -17,12 +17,17 @@ import org.json.JSONObject
 
 data class Server(
     val name: String,
-    val type: String,            // "WG" أو "SSH"
-    val config: String = "",     // إعداد WireGuard
+    val type: String,               // "WG" أو "SSH"
+    val config: String = "",        // إعداد WireGuard
     val host: String = "",
     val port: Int = 22,
     val user: String = "",
-    val password: String = ""
+    val password: String = "",
+    val connectHost: String = "",   // عنوان الوسيط/CDN (اختياري)
+    val connectPort: Int = 0,       // 0 = تلقائي (80 أو 443)
+    val tls: Boolean = false,
+    val sni: String = "",
+    val payload: String = ""
 )
 
 enum class VpnStatus { DISCONNECTED, CONNECTING, CONNECTED }
@@ -45,10 +50,20 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
     var status by mutableStateOf(VpnStatus.DISCONNECTED)
     var error by mutableStateOf<String?>(null)
 
+    // الإعدادات
+    var socksPort by mutableStateOf(prefs.getInt("socksPort", 1080))
+    var keepAlive by mutableStateOf(prefs.getInt("keepAlive", 15))
+
     val selectedIsWireGuard get() = servers.getOrNull(selected)?.type != "SSH"
     val activeSsh get() = servers.getOrNull(selected)?.type == "SSH" && status == VpnStatus.CONNECTED
 
     init { loadServers() }
+
+    fun saveSettings(port: Int, keepAliveSec: Int) {
+        socksPort = port.coerceIn(1024, 65535)
+        keepAlive = keepAliveSec.coerceIn(5, 120)
+        prefs.edit().putInt("socksPort", socksPort).putInt("keepAlive", keepAlive).apply()
+    }
 
     fun connect() {
         val server = servers.getOrNull(selected)
@@ -61,7 +76,7 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
                     val cfg = Config.parse(server.config.byteInputStream())
                     backend.setState(wgTunnel, Tunnel.State.UP, cfg)
                 } else {
-                    ssh.start(server.host, server.port, server.user, server.password)
+                    ssh.start(server, socksPort, keepAlive)
                 }
                 status = VpnStatus.CONNECTED
             } catch (e: Exception) {
@@ -118,7 +133,9 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
             arr.put(JSONObject()
                 .put("name", it.name).put("type", it.type).put("config", it.config)
                 .put("host", it.host).put("port", it.port)
-                .put("user", it.user).put("password", it.password))
+                .put("user", it.user).put("password", it.password)
+                .put("connectHost", it.connectHost).put("connectPort", it.connectPort)
+                .put("tls", it.tls).put("sni", it.sni).put("payload", it.payload))
         }
         prefs.edit().putString("list", arr.toString()).apply()
     }
@@ -131,7 +148,9 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
             servers.add(Server(
                 o.getString("name"), o.getString("type"), o.optString("config"),
                 o.optString("host"), o.optInt("port", 22),
-                o.optString("user"), o.optString("password")
+                o.optString("user"), o.optString("password"),
+                o.optString("connectHost"), o.optInt("connectPort", 0),
+                o.optBoolean("tls", false), o.optString("sni"), o.optString("payload")
             ))
         }
     }
