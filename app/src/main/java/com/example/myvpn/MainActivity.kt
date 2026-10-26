@@ -152,6 +152,10 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
                 fontSize = 13.sp
             )
         }
+        if (vm.activeV2ray) {
+            Spacer(Modifier.height(8.dp))
+            Text("V2Ray شغال عبر SOCKS5 على 127.0.0.1:10808. حالياً خاصك تضبط البروكسي في التطبيق اللي بغيتي تستعمل.", fontSize = 13.sp)
+        }
         vm.error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -173,10 +177,13 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
                         )
                         Column(Modifier.weight(1f)) {
                             Text(server.name)
-                            val sub = if (server.type == "WG") "WireGuard" else
-                                "SSH • ${server.host}" +
+                            val sub = when (server.type) {
+                                "WG" -> "WireGuard"
+                                "V2RAY" -> "V2Ray • ${server.config.substringBefore("://").uppercase()}"
+                                else -> "SSH • ${server.host}" +
                                     (if (server.payload.isNotBlank()) " • Payload" else "") +
                                     (if (server.tls) " • TLS" else "")
+                            }
                             Text(sub, fontSize = 12.sp)
                         }
                         IconButton(onClick = { vm.removeServer(i) }) {
@@ -246,6 +253,7 @@ fun AddServerDialog(onDismiss: () -> Unit, onSave: (Server) -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(type == "WG", { type = "WG" }, label = { Text("WireGuard") })
                     FilterChip(type == "SSH", { type = "SSH" }, label = { Text("SSH") })
+                    FilterChip(type == "V2RAY", { type = "V2RAY" }, label = { Text("V2Ray") })
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(name, { name = it }, label = { Text("الاسم") }, singleLine = true)
@@ -256,6 +264,14 @@ fun AddServerDialog(onDismiss: () -> Unit, onSave: (Server) -> Unit) {
                         label = { Text("إعداد WireGuard (.conf)") },
                         modifier = Modifier.height(200.dp)
                     )
+                } else if (type == "V2RAY") {
+                    OutlinedTextField(
+                        cfg, { cfg = it.trim() },
+                        label = { Text("رابط VLESS / VMess / Trojan") },
+                        placeholder = { Text("vless://… أو vmess://… أو trojan://…") },
+                        modifier = Modifier.height(150.dp)
+                    )
+                    Text("يدعم روابط السيرفرات الفردية. الاتصال كيوفر SOCKS5 محلياً على 127.0.0.1:10808.", fontSize = 12.sp)
                 } else {
                     OutlinedTextField(host, { host = it }, label = { Text("عنوان سيرفر SSH") }, singleLine = true)
                     OutlinedTextField(port, { port = it.filter(Char::isDigit) }, label = { Text("منفذ SSH") }, singleLine = true)
