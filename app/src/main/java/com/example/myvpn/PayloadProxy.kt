@@ -31,6 +31,7 @@ class PayloadProxy(
         val raw = Socket()
         raw.connect(InetSocketAddress(connectHost, connectPort), if (timeout > 0) timeout else 15000)
         raw.tcpNoDelay = true
+        AppLog.add("تم الاتصال بالوسيط $connectHost:$connectPort")
 
         val s: Socket = if (useTls) {
             val name = sni.ifBlank { connectHost }
@@ -40,6 +41,7 @@ class PayloadProxy(
             params.serverNames = listOf(SNIHostName(name))
             ssl.sslParameters = params
             ssl.startHandshake()
+            AppLog.add("TLS ناجح (SNI: $name)")
             ssl
         } else raw
 
@@ -54,11 +56,13 @@ class PayloadProxy(
                 .replace("[crlf]", "\r\n")
                 .replace("[cr]", "\r")
                 .replace("[lf]", "\n")
+            AppLog.add("إرسال Payload (${text.length} حرف)")
             output!!.write(text.toByteArray(Charsets.ISO_8859_1))
             output!!.flush()
 
             val header = readHeader(input!!)
             val status = header.lineSequence().first()
+            AppLog.add("رد الوسيط: $status")
             if (!status.contains(" 101") && !status.contains(" 200")) {
                 close()
                 throw IOException("رد الوسيط: $status")
