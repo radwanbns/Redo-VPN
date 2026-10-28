@@ -109,7 +109,10 @@ class TunnelService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") {
-            SshManager.disconnect(this)
+            if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.disconnect(this)
+            if (V2rayManager.status != VpnStatus.DISCONNECTED) {
+                Thread { V2rayManager.disconnect() }.start()
+            }
             stopSelf()
             return START_NOT_STICKY
         }
