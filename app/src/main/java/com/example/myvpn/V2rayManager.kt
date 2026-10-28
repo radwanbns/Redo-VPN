@@ -1,15 +1,18 @@
 package com.example.myvpn
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.lang.reflect.Proxy
 import java.net.URLDecoder
+import kotlin.concurrent.thread
 
 /** V2Ray/Xray core bridge. The GitHub workflow builds libv2ray.aar from AndroidLibV2rayLite. */
 object V2rayManager {
@@ -19,13 +22,45 @@ object V2rayManager {
         private set
     private var controller: Any? = null
 
+    /** يستخرج روابط vless/vmess/trojan من نص الاشتراك (نص عادي أو Base64). */
+    fun parseSubscription(raw: String): List<String> {
+        var body = raw.removePrefix("\uFEFF").trim()
+        if (!body.contains("://")) {
+            body = try { b64(body) } catch (_: Exception) { body }
+        }
+        return body.lines()
+            .map { it.trim() }
+            .filter { isSupportedLink(it) }
+            .distinct()
+    }
+
+    /** اسم السيرفر من الرابط (ps في vmess أو ما بعد # في الباقي). */
+    fun nameOf(link: String): String = try {
+        val l = link.trim()
+        if (l.startsWith("vmess://", true)) {
+            JSONObject(b64(l.substring(8))).optString("ps")
+        } else {
+            val frag = l.substringAfter("#", "")
+            if (frag.isNotBlank()) decode(frag) else ""
+        }
+    } catch (_: Exception) { "" }
+
     fun isSupportedLink(link: String): Boolean = try {
         val s = link.trim()
         s.startsWith("vless://", true) || s.startsWith("vmess://", true) || s.startsWith("trojan://", true)
     } catch (_: Exception) { false }
 
-    @Synchronized fun connect(context: Context, rawLink: String) {
-        if (status == VpnStatus.CONNECTING || status == VpnStatus.CONNECTED) disconnect()
+    private var appCtx: Context? = null
+
+    fun connect(context: Context, rawLink: String, name: String = "V2Ray") {
+        if (status == VpnStatus.CONNECTING) return
+        status = VpnStatus.CONNECTING
+        thread(isDaemon = true) { doConnect(context.applicationContext, rawLink, name) }
+    }
+
+    @Synchronized private fun doConnect(context: Context, rawLink: String, name: String) {
+        appCtx = context
+        if (controller != null) disconnect()
         error = null
         status = VpnStatus.CONNECTING
         AppLog.add("V2Ray: جارٍ إعداد الاتصال")
@@ -35,27 +70,38 @@ object V2rayManager {
             val init = libClass.methods.firstOrNull { it.name.equals("initCoreEnv", true) && it.parameterTypes.size == 2 }
             init?.invoke(null, context.filesDir.absolutePath, "")
             val callbackClass = Class.forName("libv2ray.CoreCallbackHandler")
-            val callback = Proxy.newProxyInstance(callbackClass.classLoader, arrayOf(callbackClass)) { _, method, args ->
+            val callback = Proxy.newProxyInstance(callbackClass.classLoader, arrayOf(callbackClass)) { proxy, method, args ->
+                if (method.declaringClass == Any::class.java) {
+                    return@newProxyInstance when (method.name) {
+                        "hashCode" -> System.identityHashCode(proxy)
+                        "equals" -> proxy === args?.getOrNull(0)
+                        else -> "V2rayCallback"
+                    }
+                }
                 when (method.name.lowercase()) {
-                    "startup" -> { AppLog.add("V2Ray: بدأ المحرك"); 0 }
-                    "shutdown" -> { AppLog.add("V2Ray: توقف المحرك"); 0 }
+                    "startup" -> AppLog.add("V2Ray: بدأ المحرك")
+                    "shutdown" -> AppLog.add("V2Ray: توقف المحرك")
                     "onemitstatus" -> {
                         val msg = args?.getOrNull(1)?.toString().orEmpty()
                         if (msg.contains("error", true) || msg.contains("fail", true)) error = msg
-                        0
                     }
-                    else -> 0
                 }
+                zeroFor(method.returnType)
             }
             val factory = libClass.methods.firstOrNull { it.name.equals("newCoreController", true) && it.parameterTypes.size == 1 }
                 ?: kotlin.error("واجهة محرك V2Ray غير متوافقة")
             val core = factory.invoke(null, callback) ?: kotlin.error("تعذر إنشاء محرك V2Ray")
-            val start = core.javaClass.methods.firstOrNull { it.name.equals("startLoop", true) && it.parameterTypes.size == 1 }
+            val start = core.javaClass.methods.firstOrNull { it.name.equals("startLoop", true) && it.parameterTypes.size in 1..2 }
                 ?: kotlin.error("دالة تشغيل V2Ray غير موجودة")
-            start.invoke(core, config)
+            if (start.parameterTypes.size == 1) start.invoke(core, config)
+            else start.invoke(core, config, zeroFor(start.parameterTypes[1]) ?: 0)
             controller = core
             status = VpnStatus.CONNECTED
-            AppLog.add("V2Ray: تم تشغيل النفق ✔ SOCKS5 على 127.0.0.1:10808")
+            AppLog.add("V2Ray: تم تشغيل المحرك ✔ SOCKS5 على 127.0.0.1:10808")
+            ContextCompat.startForegroundService(
+                context, Intent(context, TunnelService::class.java).putExtra("name", name)
+            )
+            RedoVpnService.start(context)
         } catch (e: Exception) {
             controller = null
             status = VpnStatus.DISCONNECTED
@@ -65,7 +111,14 @@ object V2rayManager {
         }
     }
 
+    fun onVpnFailed(msg: String) {
+        error = msg
+        AppLog.add("VPN: $msg")
+        thread(isDaemon = true) { disconnect() }
+    }
+
     @Synchronized fun disconnect() {
+        appCtx?.let { try { RedoVpnService.stop(it) } catch (_: Exception) {} }
         try {
             controller?.let { c ->
                 c.javaClass.methods.firstOrNull { it.name.equals("stopLoop", true) && it.parameterTypes.isEmpty() }?.invoke(c)
@@ -76,6 +129,7 @@ object V2rayManager {
             controller = null
             status = VpnStatus.DISCONNECTED
             AppLog.add("V2Ray: تم قطع الاتصال")
+            appCtx?.let { it.stopService(Intent(it, TunnelService::class.java)) }
         }
     }
 
@@ -104,7 +158,7 @@ object V2rayManager {
 
     private fun vmessOutbound(link: String): JSONObject {
         val encoded = link.substringAfter("vmess://").substringBefore('#')
-        val decoded = String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8)
+        val decoded = b64(encoded)
         val o = JSONObject(decoded)
         val host = o.optString("add")
         val port = o.optInt("port", 443)
@@ -113,10 +167,9 @@ object V2rayManager {
         val user = JSONObject().put("id", id).put("alterId", o.optInt("aid", 0)).put("security", o.optString("scy", "auto"))
         val outbound = JSONObject().put("tag", "proxy").put("protocol", "vmess")
             .put("settings", JSONObject().put("vnext", JSONArray().put(JSONObject().put("address", host).put("port", port).put("users", JSONArray().put(user)))))
-        val q = JSONObject()
         val net = o.optString("net", "tcp")
         val tls = o.optString("tls", "")
-        val sni = o.optString("sni", o.optString("host", host))
+        val sni = o.optString("sni").ifBlank { o.optString("host") }.ifBlank { host }
         outbound.put("streamSettings", streamSettings(net, tls, sni, o.optString("path", "/"), o.optString("host", ""), "", "", "", ""))
         return outbound
     }
@@ -124,13 +177,13 @@ object V2rayManager {
     private fun vlessOutbound(link: String): JSONObject {
         val uri = Uri.parse(link)
         val host = uri.host ?: throw IllegalArgumentException("عنوان VLESS ناقص")
-        val id = uri.userInfo?.substringBefore(':') ?: throw IllegalArgumentException("UUID ديال VLESS ناقص")
+        val id = uri.userInfo?.substringBefore(':') ?: throw IllegalArgumentException("UUID الخاص بـ VLESS ناقص")
         val p = query(uri)
         val user = JSONObject().put("id", id).put("encryption", p["encryption"] ?: "none")
         p["flow"]?.takeIf { it.isNotBlank() }?.let { user.put("flow", it) }
         val outbound = JSONObject().put("tag", "proxy").put("protocol", "vless")
             .put("settings", JSONObject().put("vnext", JSONArray().put(JSONObject().put("address", host).put("port", uri.port.takeIf { it > 0 } ?: 443).put("users", JSONArray().put(user)))))
-        outbound.put("streamSettings", streamSettings(p["type"] ?: "tcp", p["security"] ?: "", p["sni"] ?: host, p["path"] ?: "/", p["host"] ?: "", p["serviceName"] ?: "", p["mode"] ?: "", p["pbk"] ?: "", p["sid"] ?: "", p["fp"] ?: ""))
+        outbound.put("streamSettings", streamSettings(p["type"] ?: "tcp", p["security"] ?: "", (p["sni"] ?: "").ifBlank { p["host"] ?: "" }.ifBlank { host }, p["path"] ?: "/", p["host"] ?: "", p["serviceName"] ?: "", p["mode"] ?: "", p["pbk"] ?: "", p["sid"] ?: "", p["fp"] ?: ""))
         return outbound
     }
 
@@ -141,7 +194,7 @@ object V2rayManager {
         val p = query(uri)
         val outbound = JSONObject().put("tag", "proxy").put("protocol", "trojan")
             .put("settings", JSONObject().put("servers", JSONArray().put(JSONObject().put("address", host).put("port", uri.port.takeIf { it > 0 } ?: 443).put("password", password))))
-        outbound.put("streamSettings", streamSettings(p["type"] ?: "tcp", p["security"] ?: "tls", p["sni"] ?: host, p["path"] ?: "/", p["host"] ?: "", p["serviceName"] ?: "", p["mode"] ?: "", p["pbk"] ?: "", p["sid"] ?: "", p["fp"] ?: ""))
+        outbound.put("streamSettings", streamSettings(p["type"] ?: "tcp", p["security"] ?: "tls", (p["sni"] ?: "").ifBlank { p["host"] ?: "" }.ifBlank { host }, p["path"] ?: "/", p["host"] ?: "", p["serviceName"] ?: "", p["mode"] ?: "", p["pbk"] ?: "", p["sid"] ?: "", p["fp"] ?: ""))
         return outbound
     }
 
@@ -178,6 +231,19 @@ object V2rayManager {
             result[decode(k)] = decode(v)
         }
         return result
+    }
+
+    private fun zeroFor(type: Class<*>): Any? = when (type) {
+        Long::class.javaPrimitiveType -> 0L
+        Int::class.javaPrimitiveType -> 0
+        Boolean::class.javaPrimitiveType -> false
+        else -> null
+    }
+
+    private fun b64(s: String): String {
+        var x = s.trim().replace('-', '+').replace('_', '/')
+        while (x.length % 4 != 0) x += "="
+        return String(Base64.decode(x, Base64.DEFAULT), Charsets.UTF_8)
     }
 
     private fun decode(s: String): String = try { URLDecoder.decode(s, "UTF-8") } catch (_: Exception) { s }
