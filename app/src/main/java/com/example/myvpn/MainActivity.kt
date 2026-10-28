@@ -3,6 +3,8 @@ package com.example.myvpn
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -113,6 +116,18 @@ fun LogScreen() {
 fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     var showAdd by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showTelegramDialog by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+
+    fun openTelegram() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/radouane_tech"))
+        context.startActivity(intent)
+    }
+
+    fun openYouTube() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@RADOUANETECH"))
+        context.startActivity(intent)
+    }
 
     val color = when (vm.status) {
         VpnStatus.CONNECTED -> Color(0xFF2ECC71)
@@ -145,6 +160,25 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         Text(label, fontSize = 20.sp, color = color)
+
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { showTelegramDialog = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("الانضمام إلى قناة Telegram")
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = {
+                try { openYouTube() } catch (_: Exception) { }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000))
+        ) {
+            Text("الاشتراك في قناة YouTube", color = Color.White)
+        }
 
         if (vm.activeSsh) {
             Spacer(Modifier.height(8.dp))
@@ -198,6 +232,28 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (showTelegramDialog) {
+        AlertDialog(
+            onDismissRequest = { /* إجباري: لا يغلق بالرجوع أو الضغط خارج النافذة */ },
+            title = { Text("انضم إلى قناة Telegram") },
+            text = {
+                Text("تابع آخر التحديثات والأخبار الخاصة بتطبيق Redo VPN عبر قناتنا الرسمية.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try {
+                        openTelegram()
+                        showTelegramDialog = false
+                    } catch (_: Exception) {
+                        // أبقِ النافذة مفتوحة إذا تعذر فتح الرابط
+                    }
+                }) {
+                    Text("الانضمام إلى القناة")
+                }
+            }
+        )
     }
 
     if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
