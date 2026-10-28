@@ -36,6 +36,70 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/app/libs"
           gomobile bind -v -androidapi 24 -target=android/arm64,android/arm -trimpath -ldflags='-s -w -buildid= -checklinkname=0' -o "$GITHUB_WORKSPACE/app/libs/libv2ray.aar" .
           ls -la "$GITHUB_WORKSPACE/app/libs"
+          test -s "$GITHUB_WORKSPACE/app/libs/libv2ray.aar"
+      - name: Build hev-socks5-tunnel (tun2socks)
+        shell: bash
+        run: |
+          set -e
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          mkdir -p /tmp/hev
+          cd /tmp/hev
+          git clone --recursive https://github.com/heiher/hev-socks5-tunnel jni
+          "$ANDROID_NDK_HOME/ndk-build" -j4 APP_ABI="arm64-v8a armeabi-v7a" APP_PLATFORM=android-24 || "$ANDROID_NDK_HOME/ndk-build" -j4 APP_ABI="arm64-v8a armeabi-v7a"
+          mkdir -p "$GITHUB_WORKSPACE/app/src/main/jniLibs"
+          cp -r /tmp/hev/libs/* "$GITHUB_WORKSPACE/app/src/main/jniLibs/"
+          find "$GITHUB_WORKSPACE/app/src/main/jniLibs" -name "*.so"
+          test -f "$GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so"
+      - name: Generate TProxyService.kt from the JNI table
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/hev/htproxy
+          python3 - <<'PY'
+          import glob, os, re
+          text = ""
+          for f in glob.glob("/tmp/hev/jni/src/**/*.c", recursive=True):
+              if "jni" in os.path.basename(f).lower():
+                  text += open(f, errors="ignore").read()
+          M = {"V": "Unit", "I": "Int", "J": "Long", "Z": "Boolean", "D": "Double",
+               "F": "Float", "B": "Byte", "S": "Short", "C": "Char"}
+          def ptype(s, i):
+              c = s[i]
+              if c == "[":
+                  t, j = ptype(s, i + 1)
+                  arr = {"Int": "IntArray", "Long": "LongArray", "Byte": "ByteArray",
+                         "Boolean": "BooleanArray"}.get(t, "Array<%s>" % t)
+                  return arr, j
+              if c == "L":
+                  j = s.index(";", i)
+                  n = s[i + 1:j]
+                  return ("String" if n == "java/lang/String" else n.replace("/", ".")), j + 1
+              return M[c], i + 1
+          entries = {}
+          for name, sig in re.findall(r'\{\s*"(TProxy\w+)"\s*,\s*"([^"]+)"', text):
+              entries[name] = sig
+          lines = []
+          for name, sig in entries.items():
+              i = 1
+              params = []
+              while sig[i] != ")":
+                  t, i = ptype(sig, i)
+                  params.append(t)
+              ret, _ = ptype(sig, i + 1)
+              args = ", ".join("a%d: %s" % (k, t) for k, t in enumerate(params))
+              r = "" if ret == "Unit" else ": " + ret
+              lines.append("    @JvmStatic external fun %s(%s)%s" % (name, args, r))
+          if not lines:
+              lines = [
+                  "    @JvmStatic external fun TProxyStartService(a0: String, a1: Int)",
+                  "    @JvmStatic external fun TProxyStopService()",
+                  "    @JvmStatic external fun TProxyGetStats(): LongArray",
+              ]
+          code = ("package hev.htproxy\n\nobject TProxyService {\n"
+                  "    init { System.loadLibrary(\"hev-socks5-tunnel\") }\n"
+                  + "\n".join(lines) + "\n}\n")
+          open("app/src/main/java/hev/htproxy/TProxyService.kt", "w").write(code)
+          print(code)
+          PY
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
