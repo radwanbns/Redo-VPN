@@ -127,10 +127,24 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
+    var showSettings by remember { mutableStateOf(false) }
     val navy = Color(0xFF06101F)
-    val panel = Color(0xFF102442)
     val cyan = Color(0xFF00B7FF)
+    val pale = Color(0xFFD9E8FF)
     Column(Modifier.fillMaxSize().background(navy).statusBarsPadding()) {
+        // Header is above the tabs so the app name and settings sit higher.
+        Row(
+            Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 4.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Redo ", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("VPN", color = cyan, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { showSettings = true }) {
+                Icon(Icons.Default.Settings, "الإعدادات", tint = pale, modifier = Modifier.size(27.dp))
+            }
+        }
+        Spacer(Modifier.height(6.dp))
         TabRow(
             selectedTabIndex = tab,
             containerColor = Color(0xFF080D18),
@@ -141,6 +155,7 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
         }
         if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
     }
+    if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
 }
 
 @Composable
@@ -171,7 +186,6 @@ fun LogScreen() {
 @Composable
 fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     var showAdd by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
     var showTelegramDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val navy = Color(0xFF06101F)
@@ -210,15 +224,7 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
         Modifier.fillMaxSize().background(navy).padding(horizontal = 18.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { showSettings = true }) {
-                Icon(Icons.Default.Settings, "الإعدادات", tint = pale, modifier = Modifier.size(27.dp))
-            }
-            Spacer(Modifier.weight(1f))
-            Text("Redo ", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Text("VPN", color = cyan, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-        }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(12.dp))
 
         Box(
             Modifier.size(174.dp)
@@ -231,6 +237,20 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
         Text(label, fontSize = 22.sp, color = statusColor, fontWeight = FontWeight.SemiBold)
+
+        Spacer(Modifier.height(14.dp))
+        Button(
+            onClick = { openLink(DialogSecrets.telegramUrl) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFBFA4FF), contentColor = Color(0xFF25134D))
+        ) { Text("الانضمام إلى قناة Telegram", fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { openLink(DialogSecrets.youtubeUrl) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000), contentColor = Color.White)
+        ) { Text("الاشتراك في قناة YouTube", fontWeight = FontWeight.SemiBold) }
+
         if (vm.activeSsh) {
             Spacer(Modifier.height(6.dp))
             Text("SOCKS5 على 127.0.0.1:${vm.socksPort}\nاضبط هذا البروكسي في التطبيق الذي تريد تمريره عبر SSH", color = pale, fontSize = 12.sp)
@@ -296,7 +316,6 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     }
 
     if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
-    if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
 
     if (showTelegramDialog) {
         AlertDialog(
@@ -307,10 +326,10 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
             title = { Text(DialogSecrets.title, fontWeight = FontWeight.Bold) },
             text = { Text(DialogSecrets.description) },
             confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(end = 8.dp)) {
-                    TextButton(onClick = { showTelegramDialog = false; openLink(DialogSecrets.telegramUrl) }) { Text(DialogSecrets.joinLabel, color = Color(0xFF4AB8FF), fontSize = 12.sp) }
-                    TextButton(onClick = { showTelegramDialog = false; openLink(DialogSecrets.youtubeUrl) }) { Text(DialogSecrets.youtubeLabel, color = Color(0xFFFF5555), fontSize = 12.sp) }
-                }
+                TextButton(
+                    onClick = { showTelegramDialog = false; openLink(DialogSecrets.telegramUrl) },
+                    modifier = Modifier.padding(end = 8.dp)
+                ) { Text(DialogSecrets.joinLabel, color = Color(0xFF4AB8FF), fontSize = 13.sp) }
             },
             dismissButton = { TextButton(onClick = { showTelegramDialog = false }) { Text(DialogSecrets.skipLabel, color = pale) } }
         )
