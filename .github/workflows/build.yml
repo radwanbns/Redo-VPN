@@ -34,7 +34,7 @@ jobs:
           gomobile init
           go mod tidy -v
           mkdir -p "$GITHUB_WORKSPACE/app/libs"
-          gomobile bind -v -androidapi 24 -target=android/arm64,android/arm -trimpath -ldflags='-s -w -buildid=' -o "$GITHUB_WORKSPACE/app/libs/libv2ray.aar" .
+          gomobile bind -v -androidapi 24 -target=android/arm64,android/arm -trimpath -ldflags='-s -w -buildid= -checklinkname=0' -o "$GITHUB_WORKSPACE/app/libs/libv2ray.aar" .
           ls -la "$GITHUB_WORKSPACE/app/libs"
       - uses: gradle/actions/setup-gradle@v4
         with:
