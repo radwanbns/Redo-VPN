@@ -1,15 +1,20 @@
 package com.example.myvpn
 
 import android.Manifest
-import android.os.Build
-import android.os.Bundle
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -37,9 +42,53 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wireguard.android.backend.GoBackend
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 const val WS_TEMPLATE =
     "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
+
+/*
+ * نصوص نافذة Telegram مشفرة بـ AES-GCM.
+ * ملاحظة: المفتاح داخل APK، لذلك هذا إخفاء للنصوص وليس حماية سرية كاملة.
+ */
+private object DialogSecrets {
+    private const val KEY_B64 = "t7XnPsX4ZuJZSH0gI6XjiA=="
+
+    private const val TITLE = "Lt5g+OOs2I9ktX0p3n6L0ZOHoTRd7Jah5D/d0eQ5emDPFZuQeeOdQZhFMuEBWDUWdHu71CU9oKE="
+    private const val DESCRIPTION = "ZkKlSpylE3QEPj+Hv39+LmcuOABtouzW85qkPUHLilcQUg7ofQkmqxuIbTs8z2WHE0WIaOLrIkaD8Dj/X68oYRhHDZ8sIIBirR6asvWZTiuCP3Qh2gfKdpiGMzFRljmnLKpfu03r1Drr1E/RA2F6B5GS0rd6wWT7kc1q5w=="
+    private const val TELEGRAM_URL = "nMk4S/dRD8Hnj/3ovWI4N+LNbPXhqaegynyg8KX5HE8PssEUa8PAKK8TBeyMtQRleifEVtaY"
+    private const val YOUTUBE_URL = "zplhs0vmPQRb6A10N1HEi0ivxO0Ofso7vvWS+SjNiFe3YYJSyjlouMtIWNKkZWMo18lXnHY+BNDoUve3x9Y="
+    private const val JOIN_LABEL = "fsbNsMSPjic6WVOZ+YnTr5HdoKzBqcfC7hx5xbU/uBnBXtmHYCW3X75aYy7OSEJFt6ryj48lfMmhV/Fe"
+    private const val YOUTUBE_LABEL = "pgLK9/xlpKdZow8T7ctJ1mnnGJxKU8oyr1mLIhmKwP2j2vc="
+    private const val SKIP_LABEL = "dqp0JbLz01OENs348MH8UaK9Y8jMkq1S5otnNFCNz7howscg"
+
+    private fun decrypt(value: String): String {
+        val data = Base64.decode(value, Base64.DEFAULT)
+        val iv = data.copyOfRange(0, 12)
+        val encrypted = data.copyOfRange(12, data.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            SecretKeySpec(Base64.decode(KEY_B64, Base64.DEFAULT), "AES"),
+            GCMParameterSpec(128, iv)
+        )
+        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
+    }
+
+    val title: String get() = decrypt(TITLE)
+    val description: String get() = decrypt(DESCRIPTION)
+    val telegramUrl: String get() = decrypt(TELEGRAM_URL)
+    val youtubeUrl: String get() = decrypt(YOUTUBE_URL)
+    val joinLabel: String get() = decrypt(JOIN_LABEL)
+    val youtubeLabel: String get() = decrypt(YOUTUBE_LABEL)
+    val skipLabel: String get() = decrypt(SKIP_LABEL)
+}
+
+private object DialogDisplayState {
+    var countedThisSession: Boolean = false
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -78,10 +127,17 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
-            Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
+    val navy = Color(0xFF06101F)
+    val panel = Color(0xFF102442)
+    val cyan = Color(0xFF00B7FF)
+    Column(Modifier.fillMaxSize().background(navy).statusBarsPadding()) {
+        TabRow(
+            selectedTabIndex = tab,
+            containerColor = Color(0xFF080D18),
+            contentColor = Color(0xFFB9D9FF),
+        ) {
+            Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية", fontWeight = FontWeight.SemiBold) })
+            Tab(tab == 1, { tab = 1 }, text = { Text("السجل", fontWeight = FontWeight.SemiBold) })
         }
         if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
     }
@@ -94,7 +150,7 @@ fun LogScreen() {
     LaunchedEffect(AppLog.lines.size) {
         if (AppLog.lines.isNotEmpty()) state.scrollToItem(AppLog.lines.size - 1)
     }
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF06101F)).padding(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
                 clipboard.setText(AnnotatedString(AppLog.lines.joinToString("\n")))
@@ -116,23 +172,33 @@ fun LogScreen() {
 fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     var showAdd by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var showTelegramDialog by remember { mutableStateOf(true) }
+    var showTelegramDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val navy = Color(0xFF06101F)
+    val panel = Color(0xFF102442)
+    val cyan = Color(0xFF00B7FF)
+    val pale = Color(0xFFD9E8FF)
 
-    fun openTelegram() {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/radouane_tech"))
-        context.startActivity(intent)
+    LaunchedEffect(Unit) {
+        if (!DialogDisplayState.countedThisSession) {
+            DialogDisplayState.countedThisSession = true
+            val prefs = context.getSharedPreferences("promo_dialog_prefs", 0)
+            val shownCount = prefs.getInt("shown_count", 0)
+            if (shownCount < 10) {
+                showTelegramDialog = true
+                prefs.edit().putInt("shown_count", shownCount + 1).apply()
+            }
+        }
     }
 
-    fun openYouTube() {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@RADOUANETECH"))
-        context.startActivity(intent)
+    fun openLink(url: String) {
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     }
 
-    val color = when (vm.status) {
-        VpnStatus.CONNECTED -> Color(0xFF2ECC71)
-        VpnStatus.CONNECTING -> Color(0xFFF1C40F)
-        VpnStatus.DISCONNECTED -> Color(0xFF7F8C8D)
+    val statusColor = when (vm.status) {
+        VpnStatus.CONNECTED -> Color(0xFF26D98A)
+        VpnStatus.CONNECTING -> Color(0xFFFFC857)
+        VpnStatus.DISCONNECTED -> Color(0xFF9BAEC5)
     }
     val label = when (vm.status) {
         VpnStatus.CONNECTED -> "متصل"
@@ -141,123 +207,114 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     }
 
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().background(navy).padding(horizontal = 18.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Redo VPN", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            IconButton(onClick = { showSettings = true }) { Icon(Icons.Default.Settings, "الإعدادات") }
+            IconButton(onClick = { showSettings = true }) {
+                Icon(Icons.Default.Settings, "الإعدادات", tint = pale, modifier = Modifier.size(27.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Text("Redo ", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text("VPN", color = cyan, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(18.dp))
 
-        Button(
-            onClick = onToggle,
-            enabled = vm.status != VpnStatus.CONNECTING,
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(containerColor = color),
-            modifier = Modifier.size(150.dp)
-        ) { Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(64.dp), tint = Color.White) }
-
-        Spacer(Modifier.height(12.dp))
-        Text(label, fontSize = 20.sp, color = color)
-
-        Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = { showTelegramDialog = true },
-            modifier = Modifier.fillMaxWidth()
+        Box(
+            Modifier.size(174.dp)
+                .background(Brush.radialGradient(listOf(Color(0xFF1D5CA8), Color(0xFF0C2346), navy)), CircleShape)
+                .border(2.dp, cyan, CircleShape)
+                .clickable(enabled = vm.status != VpnStatus.CONNECTING) { onToggle() },
+            contentAlignment = Alignment.Center
         ) {
-            Text("الانضمام إلى قناة Telegram")
+            Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(78.dp), tint = Color.White)
         }
-
-        Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = {
-                try { openYouTube() } catch (_: Exception) { }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000))
-        ) {
-            Text("الاشتراك في قناة YouTube", color = Color.White)
-        }
-
+        Spacer(Modifier.height(12.dp))
+        Text(label, fontSize = 22.sp, color = statusColor, fontWeight = FontWeight.SemiBold)
         if (vm.activeSsh) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "SOCKS5 على 127.0.0.1:${vm.socksPort}\nاضبط هذا البروكسي في التطبيق الذي تريد تمريره عبر SSH",
-                fontSize = 13.sp
-            )
+            Spacer(Modifier.height(6.dp))
+            Text("SOCKS5 على 127.0.0.1:${vm.socksPort}\nاضبط هذا البروكسي في التطبيق الذي تريد تمريره عبر SSH", color = pale, fontSize = 12.sp)
         }
         if (vm.activeV2ray) {
-            Spacer(Modifier.height(8.dp))
-            Text("V2Ray يعمل كـ VPN كامل: كل حركة الهاتف تمر عبر السيرفر.", fontSize = 13.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("V2Ray يعمل كـ VPN كامل: كل حركة الهاتف تمر عبر السيرفر.", color = pale, fontSize = 12.sp)
         }
-        vm.error?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it, color = MaterialTheme.colorScheme.error)
-        }
+        vm.error?.let { Spacer(Modifier.height(6.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
 
-        Spacer(Modifier.height(24.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("السيرفرات", fontSize = 18.sp, modifier = Modifier.weight(1f))
-            IconButton(onClick = { vm.updateSubscription() }, enabled = !vm.subBusy) {
-                Icon(Icons.Default.Refresh, "تحديث السيرفرات")
+        Spacer(Modifier.height(18.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFF25466F), MaterialTheme.shapes.large),
+            colors = CardDefaults.cardColors(containerColor = panel),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🌐", fontSize = 24.sp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("اختيار السيرفر", color = pale, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(vm.servers.getOrNull(vm.selected)?.name ?: "اختر سيرفراً من القائمة بالأسفل", color = Color(0xFF9DB6D8), fontSize = 12.sp)
+                }
+                IconButton(onClick = { vm.updateSubscription() }, enabled = !vm.subBusy) {
+                    Icon(Icons.Default.Refresh, "تحديث السيرفرات", tint = cyan)
+                }
+                IconButton(onClick = { showAdd = true }) {
+                    Icon(Icons.Default.Add, "إضافة سيرفر", tint = pale)
+                }
             }
-            IconButton(onClick = { showAdd = true }) { Icon(Icons.Default.Add, "إضافة") }
         }
-
-        vm.subMessage?.let { Text(it, fontSize = 12.sp) }
-        LazyColumn(Modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("السيرفرات", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+            Text("${vm.servers.size} متاح", color = Color(0xFF8CA8CC), fontSize = 12.sp)
+        }
+        vm.subMessage?.let { Text(it, fontSize = 12.sp, color = Color(0xFFFFC857), modifier = Modifier.padding(vertical = 4.dp)) }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
             itemsIndexed(vm.servers) { i, server ->
-                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = vm.selected == i,
-                            onClick = { if (vm.status == VpnStatus.DISCONNECTED) vm.selected = i }
-                        )
+                val selected = vm.selected == i
+                Card(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { if (vm.status == VpnStatus.DISCONNECTED) vm.selected = i },
+                    colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF173A63) else panel),
+                    shape = MaterialTheme.shapes.medium,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) cyan else Color(0xFF203B5E))
+                ) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selected, onClick = { if (vm.status == VpnStatus.DISCONNECTED) vm.selected = i }, colors = RadioButtonDefaults.colors(selectedColor = cyan, unselectedColor = Color(0xFF8CA8CC)))
                         Column(Modifier.weight(1f)) {
-                            Text(server.name)
+                            Text(server.name, color = Color.White, fontWeight = FontWeight.SemiBold)
                             val sub = when (server.type) {
                                 "WG" -> "WireGuard"
                                 "V2RAY" -> "V2Ray • ${server.config.substringBefore("://").uppercase()}"
-                                else -> "SSH • ${server.host}" +
-                                    (if (server.payload.isNotBlank()) " • Payload" else "") +
-                                    (if (server.tls) " • TLS" else "")
+                                else -> "SSH • ${server.host}" + (if (server.payload.isNotBlank()) " • Payload" else "") + (if (server.tls) " • TLS" else "")
                             }
-                            Text(sub, fontSize = 12.sp)
+                            Text(sub, fontSize = 12.sp, color = Color(0xFF9DB6D8))
                         }
-                        IconButton(onClick = { vm.removeServer(i) }) {
-                            Icon(Icons.Default.Delete, "حذف")
-                        }
+                        IconButton(onClick = { vm.removeServer(i) }) { Icon(Icons.Default.Delete, "حذف", tint = Color(0xFFFF7C86)) }
                     }
                 }
             }
         }
-    }
-
-    if (showTelegramDialog) {
-        AlertDialog(
-            onDismissRequest = { /* إجباري: لا يغلق بالرجوع أو الضغط خارج النافذة */ },
-            title = { Text("انضم إلى قناة Telegram") },
-            text = {
-                Text("تابع آخر التحديثات والأخبار الخاصة بتطبيق Redo VPN عبر قناتنا الرسمية.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    try {
-                        openTelegram()
-                        showTelegramDialog = false
-                    } catch (_: Exception) {
-                        // أبقِ النافذة مفتوحة إذا تعذر فتح الرابط
-                    }
-                }) {
-                    Text("الانضمام إلى القناة")
-                }
-            }
-        )
     }
 
     if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
+
+    if (showTelegramDialog) {
+        AlertDialog(
+            onDismissRequest = { },
+            containerColor = Color(0xFF102442),
+            titleContentColor = Color.White,
+            textContentColor = Color(0xFFD9E8FF),
+            title = { Text(DialogSecrets.title, fontWeight = FontWeight.Bold) },
+            text = { Text(DialogSecrets.description) },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(end = 8.dp)) {
+                    TextButton(onClick = { showTelegramDialog = false; openLink(DialogSecrets.telegramUrl) }) { Text(DialogSecrets.joinLabel, color = Color(0xFF4AB8FF), fontSize = 12.sp) }
+                    TextButton(onClick = { showTelegramDialog = false; openLink(DialogSecrets.youtubeUrl) }) { Text(DialogSecrets.youtubeLabel, color = Color(0xFFFF5555), fontSize = 12.sp) }
+                }
+            },
+            dismissButton = { TextButton(onClick = { showTelegramDialog = false }) { Text(DialogSecrets.skipLabel, color = pale) } }
+        )
+    }
 }
 
 @Composable
