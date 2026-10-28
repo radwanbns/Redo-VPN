@@ -83,7 +83,7 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (server.type == "V2RAY") {
-            V2rayManager.connect(getApplication<Application>(), server.config)
+            V2rayManager.connect(getApplication<Application>(), server.config, server.name)
             return
         }
         wgStatus = VpnStatus.CONNECTING
@@ -104,7 +104,9 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnect() {
         if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.disconnect(getApplication<Application>())
-        if (V2rayManager.status != VpnStatus.DISCONNECTED) V2rayManager.disconnect()
+        if (V2rayManager.status != VpnStatus.DISCONNECTED) {
+            viewModelScope.launch(Dispatchers.IO) { V2rayManager.disconnect() }
+        }
         if (wgStatus != VpnStatus.DISCONNECTED) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
