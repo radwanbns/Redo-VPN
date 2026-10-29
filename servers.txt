@@ -1,2 +1,3 @@
 vless://083d1468-d0d9-11f1-ac57-2bda140d2987@104.18.37.127:443?encryption=none&security=tls&type=ws&path=%2fvpnjantit#IAM ☆6 (1️⃣)
 vless://37a35c82-d2cb-11f1-ad57-e3491d01ece0@se2.vpnjantit.com:443?encryption=none&security=tls&type=ws&path=%2fvpnjantit#IAM ☆6 (2️⃣)
+vmess://eyJ2IjoiMiIsInBzIjoiSUFNIOKYhjYgVk1FU1MgKDMpIiwiYWRkIjoiMTA0LjE4LjM3LjEyNyIsInBvcnQiOiI0NDMiLCJpZCI6IjM3ODhhNjYwLWQzNGYtMTFmMS1hY2Q3LWE3NzdjYzExMzNhNiIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJzYTIucmF0ZWNoLnF6ei5pbyIsInBhdGgiOiIvdnBuamFudGl0IiwidGxzIjoidGxzIiwic25pIjoic2EyLnJhdGVjaC5xenouaW8iLCJhbHBuIjoiIiwiZnAiOiIiLCJpbnNlY3VyZSI6IjAiLCJwY3MiOiIiLCJ2Y24iOiIiLCJlY2giOiIiLCJwcXYiOiIifQ==
