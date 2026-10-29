@@ -1,3 +1,1 @@
-vless://083d1468-d0d9-11f1-ac57-2bda140d2987@104.18.37.127:443?encryption=none&security=tls&type=ws&path=%2fvpnjantit#IAM ☆6 (1️⃣) 🇩🇪
-vless://37a35c82-d2cb-11f1-ad57-e3491d01ece0@se2.vpnjantit.com:443?encryption=none&security=tls&type=ws&path=%2fvpnjantit#IAM ☆6 (2️⃣) 🇻🇺
-vless://e0bb16f0-d3d6-11f1-9dbc-83a3b4a73f4b@premifr1.vpnjantit.com:443?encryption=none&security=tls&type=ws&path=%2fvpnjantit#IAM ☆6 (3️⃣) 🇫🇷
+vless://293e65e6-d3e9-11f1-8655-fb20545f23ec@104.18.37.127:443?path=%2Fvpnjantit&security=tls&encryption=none&host=ca2.ratech.qzz.io&type=ws&allowInsecure=1&sni=ca2.ratech.qzz.io#IAM ☆6 🇨🇦 (1)
