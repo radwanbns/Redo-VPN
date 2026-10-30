@@ -1,2 +1,1 @@
 vless://293e65e6-d3e9-11f1-8655-fb20545f23ec@104.18.37.127:443?path=%2Fvpnjantit&security=tls&encryption=none&host=ca2.ratech.qzz.io&type=ws&sni=ca2.ratech.qzz.io#IAM ☆6 🇨🇦 (1)
-trojan://Ggsha88-vpnjantit.com@gr2.vpnjantit.com:443?security=tls&type=tcp&headerType=none#Ggsha88-vpnjantit.com
